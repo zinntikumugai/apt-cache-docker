@@ -19,13 +19,13 @@ LABEL apt-cacher-ng.version="${VERSION}"
 
 # 環境変数
 ENV DEBIAN_FRONTEND=noninteractive
-# renovate: datasource=repology depName=debian_13/apt-cacher-ng
-ENV APT_CACHER_NG_VERSION=3.7.5-1
+# renovate: datasource=repology depName=debian_13/apt-cacher-ng versioning=loose
+ENV APT_CACHER_NG_VERSION=3.7.5
 
 # システムの更新とapt-cacher-ngのインストール（バージョン固定）
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        apt-cacher-ng=${APT_CACHER_NG_VERSION} \
+        apt-cacher-ng=${APT_CACHER_NG_VERSION}* \
         curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
