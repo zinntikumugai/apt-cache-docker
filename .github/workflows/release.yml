@@ -1,0 +1,151 @@
+name: Release
+
+# このワークフローはGitHub Container Registry (GHCR) のみを使用します
+# Docker Hub への push は行いません
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+      create_release:
+        description: 'Create GitHub release'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  # GitHub Container Registry (GHCR) のみを使用し、Docker Hub は使用しない
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate version format
+      run: |
+        if [[ ! "${{ github.event.inputs.version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Error: Version must be in format vX.Y.Z (e.g., v1.0.0)"
+          exit 1
+        fi
+
+    - name: Extract apt-cacher-ng version from Dockerfile
+      id: extract_version
+      run: |
+        APT_CACHER_VERSION=$(grep "ENV APT_CACHER_NG_VERSION" Dockerfile | cut -d'=' -f2)
+        echo "apt_cacher_version=${APT_CACHER_VERSION}" >> $GITHUB_OUTPUT
+        echo "APT Cacher NG Version: ${APT_CACHER_VERSION}"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry (GHCR)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=raw,value=latest
+          type=raw,value=${{ github.event.inputs.version }}
+          type=raw,value=apt-cacher-ng-${{ steps.extract_version.outputs.apt_cacher_version }}
+          type=raw,value=${{ github.event.inputs.version }}-apt-cacher-ng-${{ steps.extract_version.outputs.apt_cacher_version }}
+        labels: |
+          org.opencontainers.image.title=APT Cacher NG
+          org.opencontainers.image.description=APT Cacher NG on Debian Trixie Slim
+          org.opencontainers.image.vendor=user
+          org.opencontainers.image.version=${{ github.event.inputs.version }}
+          apt-cacher-ng.version=${{ steps.extract_version.outputs.apt_cacher_version }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILDTIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          VERSION=${{ steps.extract_version.outputs.apt_cacher_version }}
+
+    - name: Create Git tag
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git tag ${{ github.event.inputs.version }}
+        git push origin ${{ github.event.inputs.version }}
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        cat > release_notes.md << EOF
+        # APT Cacher NG Docker Image Release ${{ github.event.inputs.version }}
+        
+        ## 📦 What's included
+        
+        - **APT Cacher NG Version**: \`${{ steps.extract_version.outputs.apt_cacher_version }}\`
+        - **Base Image**: \`debian:trixie-slim\`
+        - **Supported Platforms**: \`linux/amd64\`, \`linux/arm64\`
+        
+        ## 🐳 Docker Images
+        
+        | Tag | Description |
+        |-----|-------------|
+        | \`latest\` | Latest stable release |
+        | \`${{ github.event.inputs.version }}\` | This release version |
+        | \`apt-cacher-ng-${{ steps.extract_version.outputs.apt_cacher_version }}\` | APT Cacher NG version specific |
+        | \`${{ github.event.inputs.version }}-apt-cacher-ng-${{ steps.extract_version.outputs.apt_cacher_version }}\` | Combined version tag |
+        
+        ## 🚀 Usage
+        
+        \`\`\`bash
+        # Pull the image
+        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version }}
+        
+        # Run the container
+        docker run -d \\
+          -p 3142:3142 \\
+          -v apt-cacher-data:/var/cache/apt-cacher-ng \\
+          --name apt-cacher \\
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version }}
+        \`\`\`
+        
+        ## 🔧 Configuration
+        
+        Configure your Debian/Ubuntu systems to use the proxy:
+        
+        \`\`\`bash
+        echo 'Acquire::HTTP::Proxy "http://localhost:3142";' | sudo tee /etc/apt/apt.conf.d/01proxy
+        \`\`\`
+        EOF
+
+    - name: Create GitHub Release
+      if: github.event.inputs.create_release == 'true'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.event.inputs.version }}
+        release_name: Release ${{ github.event.inputs.version }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false

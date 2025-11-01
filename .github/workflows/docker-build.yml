@@ -1,0 +1,114 @@
+name: Build and Push Docker Image
+
+# このワークフローはGitHub Container Registry (GHCR) のみを使用します
+# Docker Hub への push は行いません
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  # GitHub Container Registry (GHCR) のみを使用し、Docker Hub は使用しない
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Extract apt-cacher-ng version from Dockerfile
+      id: extract_version
+      run: |
+        APT_CACHER_VERSION=$(grep "ENV APT_CACHER_NG_VERSION" Dockerfile | cut -d'=' -f2)
+        echo "apt_cacher_version=${APT_CACHER_VERSION}" >> $GITHUB_OUTPUT
+        echo "APT Cacher NG Version: ${APT_CACHER_VERSION}"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry (GHCR)
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          # latest tag for default branch
+          type=raw,value=latest,enable={{is_default_branch}}
+          # apt-cacher-ng version tag
+          type=raw,value=apt-cacher-ng-${{ steps.extract_version.outputs.apt_cacher_version }}
+          # combined version tag (apt-cacher version + build number)
+          type=raw,value=v${{ steps.extract_version.outputs.apt_cacher_version }}-build-{{date 'YYYYMMDD'}}-{{sha}}
+          # date tag
+          type=raw,value={{date 'YYYY-MM-DD'}}
+          # git tag
+          type=ref,event=tag
+          # branch name
+          type=ref,event=branch
+          # pr number
+          type=ref,event=pr
+        labels: |
+          org.opencontainers.image.title=APT Cacher NG
+          org.opencontainers.image.description=APT Cacher NG on Debian Trixie Slim
+          org.opencontainers.image.vendor=user
+          apt-cacher-ng.version=${{ steps.extract_version.outputs.apt_cacher_version }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILDTIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          VERSION=${{ steps.extract_version.outputs.apt_cacher_version }}
+
+    - name: Generate build summary
+      if: github.event_name != 'pull_request'
+      run: |
+        echo "## 🐳 Docker Image Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Built Images" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Tag | Description |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----|-------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| \`latest\` | Latest stable build |" >> $GITHUB_STEP_SUMMARY
+        echo "| \`apt-cacher-ng-${{ steps.extract_version.outputs.apt_cacher_version }}\` | APT Cacher NG version specific |" >> $GITHUB_STEP_SUMMARY
+        echo "| \`v${{ steps.extract_version.outputs.apt_cacher_version }}-build-$(date +'%Y%m%d')-${GITHUB_SHA:0:7}\` | Detailed build version |" >> $GITHUB_STEP_SUMMARY
+        echo "| \`$(date +'%Y-%m-%d')\` | Date-based tag |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🏗️ Build Details" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **APT Cacher NG Version**: \`${{ steps.extract_version.outputs.apt_cacher_version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Base Image**: \`debian:trixie-slim\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Platforms**: \`linux/amd64\`, \`linux/arm64\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Registry**: \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 Usage" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+        echo "docker run -d -p 3142:3142 -v apt-cacher-data:/var/cache/apt-cacher-ng ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

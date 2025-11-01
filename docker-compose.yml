@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  apt-cacher-ng:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILDTIME: "${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+        VERSION: "${APT_CACHER_VERSION:-3.7.4-1+b2}"
+    container_name: apt-cacher-ng
+    ports:
+      - "3142:3142"
+    volumes:
+      - apt-cacher-data:/var/cache/apt-cacher-ng
+      - ./config:/etc/apt-cacher-ng:ro
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3142/acng-report.html"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  apt-cacher-data:
+    driver: local
+
+networks:
+  default:
+    name: apt-cacher-network

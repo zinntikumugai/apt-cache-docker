@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base"
+  ],
+  "packageRules": [
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["debian"],
+      "versioning": "docker"
+    },
+    {
+      "matchDatasources": ["repology"],
+      "matchPackageNames": ["debian_13/apt-cacher-ng"],
+      "schedule": ["before 6am on monday"]
+    }
+  ],
+  "docker": {
+    "enabled": true
+  },
+  "dockerfile": {
+    "enabled": true
+  },
+  "labels": ["dependencies"],
+  "assignees": ["@me"],
+  "reviewers": ["@me"],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 2,
+  "branchConcurrentLimit": 3
+}
