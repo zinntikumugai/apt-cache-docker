@@ -20,20 +20,19 @@ LABEL apt-cacher-ng.version="${VERSION}"
 # 環境変数
 ENV DEBIAN_FRONTEND=noninteractive
 # renovate: datasource=repology depName=debian_13/apt-cacher-ng
-ENV APT_CACHER_NG_VERSION=3.7.4-1+b2
+ENV APT_CACHER_NG_VERSION=3.7.5-1
 
 # システムの更新とapt-cacher-ngのインストール（バージョン固定）
-RUN apt-get update && \
-    apt-get install -y \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
         apt-cacher-ng=${APT_CACHER_NG_VERSION} \
         curl \
-        && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # apt-cacher-ngの設定ディレクトリを作成
-RUN mkdir -p /var/cache/apt-cacher-ng && \
-    chown apt-cacher-ng:apt-cacher-ng /var/cache/apt-cacher-ng
+RUN mkdir -p /var/cache/apt-cacher-ng \
+    && chown apt-cacher-ng:apt-cacher-ng /var/cache/apt-cacher-ng
 
 # ポート3142を公開（apt-cacher-ngのデフォルトポート）
 EXPOSE 3142
