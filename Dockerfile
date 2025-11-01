@@ -44,5 +44,10 @@ VOLUME ["/var/cache/apt-cacher-ng"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3142/acng-report.html || exit 1
 
+# ログをstdoutにリダイレクトするためのシンボリックリンクを作成
+RUN mkdir -p /var/log/apt-cacher-ng \
+    && ln -sf /dev/stdout /var/log/apt-cacher-ng/apt-cacher.log \
+    && ln -sf /dev/stderr /var/log/apt-cacher-ng/apt-cacher.err
+
 # apt-cacher-ngサービスを開始
 CMD ["/usr/sbin/apt-cacher-ng", "-c", "/etc/apt-cacher-ng", "ForeGround=1"]
